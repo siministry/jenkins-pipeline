@@ -1,0 +1,25 @@
+stage 'Build'
+node {
+    try {
+        wrap([$class: 'TimestamperBuildWrapper']) {
+            timeout(time: 15, unit: 'MINUTES') {
+                stage 'SCM'
+                deleteDir()
+                checkout scm
+
+                stage 'Build'
+                def gradleHome = tool name: 'Gradle-2.10', type: 'hudson.plugins.gradle.GradleInstallation'
+                sh "${gradleHome}/bin/gradle clean build"
+                step([$class: 'CheckStylePublisher', canComputeNew: false, defaultEncoding: '', healthy: '', pattern: 'build/reports/checkstyle/main.xml', unHealthy: ''])
+                step([$class: 'JUnitResultArchiver', testResults: 'build/test-results/*.xml'])
+
+                stage 'SonarQube'
+                sh "${gradleHome}/bin/gradle sonarqube"
+
+            }
+        }
+    }  catch (err) {
+        echo "Caught: ${err}"
+        currentBuild.result = 'FAILURE'
+    }
+}

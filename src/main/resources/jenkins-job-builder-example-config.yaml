@@ -1,0 +1,370 @@
+##############################################################################################################
+########## This is an example configuration.
+########## It is missing a lot of variables which you should supply yourself in a additional file.
+########## This is based on our modified Jenkins-Job-Builder fork, as the mainline does not
+##########  fully support Jenkins Pipeline and Jenkins Multi-Branch Pipeline job types.
+########## For more information, see: https://github.com/abnamrocoesd/jenkins-job-builder
+##############################################################################################################
+################ D E F A U L T S     #########################################################################
+- job_bare_defaults: &job_bare_defaults
+    name: 'defaults'
+    project-type: freestyle
+    defaults: global
+    disabled: false
+    logrotate:
+        daysToKeep: 7
+        numToKeep: 5
+        artifactDaysToKeep: -1
+        artifactNumToKeep: -1
+    jdk: '{default-jdk}'
+    wrappers:
+        - timeout:
+            timeout: 30
+            timeout-var: 'BUILD_TIMEOUT'
+            fail: true
+            type: absolute
+        - mask-passwords
+        - build-name:
+            name: '#${{BUILD_NUMBER}} ${{GIT_BRANCH, fullName=false}}'
+    publishers:
+        - email:
+            notify-every-unstable-build: true
+            send-to-individuals: true
+
+- job_defaults: &job_defaults
+    name: 'defaults'
+    <<: *job_bare_defaults
+    scm:
+        - git:
+            url: '{fed-git-url}/{npmComponentId}.git'
+            branches:
+              - '${{branch}}'
+            local-branch: '${{branch}}'
+            wipe-workspace: true
+            credentials-id: '{default-credentials-id}'
+            ignore-notify: '{ignoreNotify}'
+            shallow-clone: '{shallowClone}'
+            git-config-name: 'Jenkins'
+            git-config-email: 'jenkins@nl.abnamro.com'
+
+- job_version_defaults: &job_version_defaults
+    name: 'defaults'
+    <<: *job_defaults
+    parameters:
+      - choice:
+          name: semVer
+          choices:
+            - prerelease
+            - major
+            - minor
+            - patch
+            - premajor
+            - preminor
+            - prepatch
+          description: "What part of the version to bump?"
+      - string:
+          name: branch
+          default: ''
+          description: ''
+      - bool:
+          name: deploy
+          default: false
+          description: "<h2>Should the documentation be deployed when successful?</h2> <h3>[defaults to 'false']</h3>"
+    publishers:
+        - email:
+            notify-every-unstable-build: true
+            send-to-individuals: true
+        - archive:
+            artifacts: 'version.txt'
+            fingerprint: true
+        - git:
+            push-merge: true
+            push-only-if-success: true
+            ignore-notify: '{ignoreNotify}'
+            branches:
+              - branch:
+                  remote: origin
+                  name: '${{branch}}'
+
+
+- workflow_trigger_job_defaults: &workflow_trigger_job_defaults
+    name: 'defaults'
+    description: 'Workflow trigger for {npmComponentId}'
+    <<: *job_bare_defaults
+    scm:
+        - git:
+            url: '{fed-git-url}/{npmComponentId}.git'
+            credentials-id: '{default-credentials-id}'
+    builders:
+      - batch:
+            !include-raw-escape:  workflow-trigger-windows-command.txt
+      - conditional-step:
+          condition-kind: not
+          condition-operand:
+                condition-kind: strings-match
+                condition-string1: '${{PROPFILE,file="commitmessage.properties",property="commitmessage"}}'
+                condition-string2: "'[{jiraProjectCode}]Version updated by CI/CD Pipeline'"
+                condition-case-insensitive: true
+          steps:
+              - trigger-builds:
+                  - project: '{name}-{npmComponentId}-trigger'
+                    current-parameters: true
+                    predefined-parameters: |
+                      GIT_BRANCH=${{GIT_BRANCH}}
+                      flowType=push
+                      push_commit=${{GIT_COMMIT}}
+                      projectWorkflowFolder={name}-{npmComponentId}-workflow
+
+- workflow_job_defaults: &workflow_job_defaults
+    name: 'defaults'
+    project-type: workflow
+    defaults: global
+    disabled: false
+    logrotate:
+        daysToKeep: 7
+        numToKeep: 5
+        artifactDaysToKeep: -1
+        artifactNumToKeep: -1
+    jdk: '{default-jdk}'
+
+- multibranch_job_defaults: &multibranch_job_defaults
+    name: 'defaults'
+    project-type: multibranch
+    defaults: global
+    disabled: false
+    multibranch:
+        timer-trigger: "@midnight"
+        periodic-folder-interval: '86400000'
+        periodic-folder-spec: 'H H * * *'
+        prune-dead-branches: 'true'
+        number-to-keep: '10'
+        days-to-keep: '10'
+        scm:
+            git:
+                url: '{fed-git-url}/{npmComponentId}.git'
+                credentials-id: '{default-credentials-id}'
+        publisher-white-list:
+            - au.com.centrumsystems.hudson.plugin.buildpipeline.trigger.BuildPipelineTrigger
+            - com.cloudbees.jenkins.GitHubCommitNotifier
+            - com.cloudbees.opscenter.triggers.RemoteTriggerPublisher
+            - com.cloudbees.plugins.deployer.DeployPublisher
+            - com.michelin.cio.hudson.plugins.copytoslave.CopyToMasterNotifier
+            - com.sonatype.insight.ci.hudson.PostBuildScan
+            - com.urbancode.ds.jenkins.plugins.urbandeploypublisher.UrbanDeployPublisher
+            - hudson.maven.MavenTestDataPublisher
+            - hudson.maven.RedeployPublisher
+            - hudson.plugins.analysis.collector.AnalysisPublisher
+            - hudson.plugins.checkstyle.CheckStylePublisher
+            - hudson.plugins.descriptionsetter.DescriptionSetterPublisher
+            - hudson.plugins.findbugs.FindBugsPublisher
+            - hudson.plugins.git.GitPublisher
+            - hudson.plugins.jacoco.JacocoPublisher
+            - hudson.plugins.parameterizedtrigger.BuildTrigger
+            - hudson.plugins.pmd.PmdPublisher
+            - hudson.plugins.promoted_builds.KeepBuildForeverAction
+            - hudson.plugins.promoted_builds.tasks.RedeployBatchTaskPublisher
+            - hudson.plugins.sonar.SonarPublisher
+            - hudson.tasks.ArtifactArchiver
+            - hudson.tasks.BuildTrigger
+            - hudson.tasks.Fingerprinter
+            - hudson.tasks.JavadocArchiver
+            - hudson.tasks.Mailer
+            - hudson.tasks.junit.JUnitResultArchiver
+            - hudson.tasks.test.AggregatedTestResultPublisher
+            - jenkins.plugins.publish_over_cifs.CifsPromotionPublisherPlugin
+            - jenkins.plugins.publish_over_cifs.CifsPublisherPlugin
+            - org.jenkins_ci.plugins.flexible_publish.FlexiblePublisher
+            - org.jenkinsci.plugins.nexus.NexusTaskPublisher
+            - org.jenkinsci.plugins.stashNotifier.StashNotifier
+            - stashpullrequestbuilder.stashpullrequestbuilder.StashPostBuildComment
+        env-properties: |
+            semVer=prerelease
+            branchType={defaultBranchType}
+            flowType=nightly
+            versionJob={versionJob}
+            sonarJob={sonarJob}
+            deployJob={deployJob}
+            nexusComponentId={nexusComponentId}
+            nexusRepositoryUrl={nexus-npm-url}
+            flowFile={flowFile}
+            flowScm={flow-git-url}/{flowProject}.git
+            flowBranch={flowGitBranchId}
+            flowCredentialsId={flow-credentials-id}
+            componentScm={fed-git-url}/{npmComponentId}.git
+            componentCredentialsId={default-credentials-id}
+            notifyScmUrl={scm-base-url}
+            sitePublishLocation={site-publish-location}
+            sitePublishCredentialsId={site-publish-credentials-id}
+            phantomjsZip={phantomjs-zip}
+
+##############################################################################################################
+
+##############################################################################################################
+################ J O B  T E M P L A T E S ####################################################################
+
+################ FLOW ###################
+- job-template:
+    name: '{name}-{componentName}-workflow'
+    description: 'Workflow Muilti-Branch Job for {npmComponentId}'
+    defaultBranchType: 'stable'
+    <<: *multibranch_job_defaults
+
+################ FLOW TRIGGER #############
+- job-template:
+    name: '{name}-{componentName}-trigger'
+    description: 'Flow trigger Job for {npmComponentId}'
+    <<: *workflow_job_defaults
+    parameters:
+      - hidden:
+          name: push_commit
+          default: 'empty'
+      - hidden:
+          name: flowType
+          default: 'nightly'
+      - hidden:
+          name: sourceBranch
+          default: 'empty'
+      - hidden:
+          name: sourceCommitHash
+          default: 'empty'
+      - hidden:
+          name: targetBranch
+          default: 'empty'
+    workflow:
+      script-path: src/main/groovy/com/abnamro/flow/trigger-flow.groovy
+      scm:
+        git:
+          url: '{flow-git-url}/{flowProject}.git'
+          branches:
+            - '{flowGitBranchId}'
+          credentials-id: '{default-credentials-id}'
+
+
+################ Version ##################
+- job-template:
+    name: '{name}-{componentName}-version'
+    description: 'Version bump Job for {npmComponentId}'
+    <<: *job_version_defaults
+    ignoreNotify: true
+    shallowClone: false
+    builders:
+      - batch:
+            !include-raw-escape: windows-npm-version-command-alt.txt
+
+################ Sonar ##################
+- job-template:
+    name: '{name}-{componentName}-sonar'
+    description: 'SonarQube Job for {npmComponentId}'
+    <<: *job_defaults
+    ignoreNotify: true
+    shallowClone: true
+    parameters:
+      - string:
+          name: branch
+          default: ''
+          description: ''
+    builders:
+      - batch: '{buildCommand}'
+      - sonar:
+          sonar-name: '{sonar-name}'
+          project: sonar.properties
+    publishers:
+        - email:
+            notify-every-unstable-build: true
+            send-to-individuals: true
+        - stash:
+            url: '{scm-base-url}'
+            username: '{scm-user}'
+            password: '{scm-password}'
+            ignore-ssl: true
+            include-build-number: true
+
+################ PullRequest - Trigger ##################
+- job-template:
+    name: '{name}-{componentName}-pr-trigger'
+    description: 'Pull Request Trigger Job for {npmComponentId}'
+    <<: *workflow_trigger_job_defaults
+    ignoreNotify: true
+    shallowClone: false
+    triggers:
+      - stash-pullrequest-builder:
+          cron: '* * * * *'
+          stash-host: '{scm-base-url}'
+          credentials-id: '{stash-credentials-id}'
+          project-code: '{scmProjectCode}'
+          repository-name: '{npmComponentId}'
+          ci-build-phrases: 'test this please'
+          check-destination-commit: 'true'
+          check-mergeable: 'false'
+          check-not-conflicted: 'false'
+          only-build-on-comment: 'false'
+
+
+################ PUSH TRIGGER #############
+- job-template:
+    name: '{name}-{componentName}-push-trigger'
+    description: 'Push Trigger Job for {npmComponentId}'
+    <<: *workflow_trigger_job_defaults
+    ignoreNotify: false
+    shallowClone: false
+    triggers:
+      - pollscm:
+          cron: "@yearly"
+
+##############################################################################################################
+
+##############################################################################################################
+################ J O B  G R O U P S ##########################################################################
+
+- job-group:
+    name: '{name}-standards-and-guidelines'
+    componentName: '{npmComponentId}'
+    deployJob: ''
+    versionJob: '{name}-{npmComponentId}-version'
+    sonarJob: ''
+    flowFile: 'fed-standards-and-guidelines'
+    jobs:
+        - '{name}-{componentName}-version':
+        - '{name}-{componentName}-workflow':
+        - '{name}-{componentName}-trigger':
+        - '{name}-{componentName}-pr-trigger':
+        - '{name}-{componentName}-push-trigger':
+
+- job-group:
+    name: '{name}-oca'
+    componentName: '{npmComponentId}'
+    deployJob: ''
+    versionJob: '{name}-{npmComponentId}-version'
+    sonarJob: '{name}-{npmComponentId}-sonar'
+    flowFile: 'oca'
+    jobs:
+        - '{name}-{componentName}-workflow':
+        - '{name}-{componentName}-version':
+        - '{name}-{componentName}-sonar':
+        - '{name}-{componentName}-trigger':
+        - '{name}-{componentName}-pr-trigger':
+        - '{name}-{componentName}-push-trigger':
+
+##############################################################################################################
+
+##############################################################################################################
+################ J O Bs  #####################################################################################
+- project:
+    name: fed
+    jobs:
+        - '{name}-standards-and-guidelines':
+            npmComponentId: sandgdemo1
+            nexusComponentId: fed-standards-and-guidelines
+            scmProjectCode: fed
+            jiraProjectCode: SNG-1
+            phantomjs-zip: phantomjs-2.1.1-windows.zip
+            buildCommand:
+              !include-raw: windows-npm-buildcommand-sg.txt
+        - '{name}-oca':
+            scmProjectCode: fed
+            npmComponentId: oca-copy
+            jiraProjectCode: OCA-1
+            nexusComponentId: omnichannel-application
+            phantomjs-zip: phantomjs-1.9.8-windows.zip
+            buildCommand:
+              !include-raw: windows-npm-buildcommand-sg.txt

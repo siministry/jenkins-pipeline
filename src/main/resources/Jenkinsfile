@@ -1,0 +1,34 @@
+properties(
+	[
+		[$class: 'ParametersDefinitionProperty', parameterDefinitions: [
+			[$class: 'ChoiceParameterDefinition',
+				choices: 'nightly\npush\nrelease',
+				description: '<h3>Type of Flow that should be executed by the Workflow.</h3>',
+				name: 'flowType'
+			],
+			[$class: 'ChoiceParameterDefinition',
+				choices: 'prerelease\nmajor\nminor\npatch\npremajor\npreminor\nprepatch',
+				description: '<h3>NPM versioning parameter, default is prerelease. For specific version, use versionOverride parameter.</h3>',
+				name: 'semVer'
+			],
+			[$class: 'com.wangyin.parameter.WHideParameterDefinition', defaultValue: 'empty', description: '', name: 'push_commit'],
+			[$class: 'com.wangyin.parameter.WHideParameterDefinition', defaultValue: 'empty', description: '', name: 'sourceBranch'],
+			[$class: 'com.wangyin.parameter.WHideParameterDefinition', defaultValue: 'empty', description: '', name: 'sourceCommitHash'],
+			[$class: 'com.wangyin.parameter.WHideParameterDefinition', defaultValue: 'empty', description: '', name: 'targetBranch'],
+		]
+	]]
+)
+
+stage 'Load frontend-flow'
+def flow
+node {
+	wrap([$class: 'TimestamperBuildWrapper']) {
+		timeout(time: 30, unit: 'SECONDS') {
+			deleteDir()
+		    git changelog: false, credentialsId: "$env.flowCredentialsId", poll: false, url: "$env.flowScm", branch: "$env.flowBranch", shallow: true
+		    stash includes: '**', name: 'flowFiles'
+		    flow = load 'src\\main\\groovy\\com\\abnamro\\flow\\fed-standards-and-guidelines-flow.groovy'
+		}
+	}
+}
+flow.runFlow()
